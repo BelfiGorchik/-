@@ -2612,7 +2612,8 @@ Allow from env=valid_token
       )}
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 print:grid-cols-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8 print:grid-cols-4">
+        {/* Карточка 1: Всего откликов */}
         <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 backdrop-blur-sm transition-all hover:bg-slate-900 print:bg-gray-50 print:border-gray-200">
           <div className="text-[11px] text-slate-400 uppercase tracking-widest mb-3 font-mono print:text-gray-500">ВСЕГО ОТКЛИКОВ</div>
           <div className="text-4xl font-semibold text-white tracking-tight print:text-black">
@@ -2624,17 +2625,32 @@ Allow from env=valid_token
           </div>
         </div>
         
+        {/* Карточка 2: Время закрытия (Time-to-fill) */}
         <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 backdrop-blur-sm transition-all hover:bg-slate-900 print:bg-gray-50 print:border-gray-200">
-          <div className="text-[11px] text-slate-400 uppercase tracking-widest mb-3 font-mono print:text-gray-500">НА ЭТАПЕ ОФФЕРА</div>
+          <div className="text-[11px] text-slate-400 uppercase tracking-widest mb-3 font-mono print:text-gray-500">ВРЕМЯ ЗАКРЫТИЯ (TTF)</div>
           <div className="text-4xl font-semibold text-purple-400 tracking-tight">
-            {loading ? <span className="opacity-50 text-slate-600">...</span> : hiredCount}
+            {loading ? <span className="opacity-50">...</span> : delaysData.length > 0 ? (delaysData.reduce((acc, curr) => acc + curr.avg_days, 0)).toFixed(1) : "—"}
+            {delaysData.length > 0 && <span className="text-base font-normal text-slate-400 ml-1">дн.</span>}
           </div>
-          <div className="mt-3 text-sm text-purple-400/60 flex items-center print:text-purple-600">
-            <span className="w-2 h-2 rounded-full bg-purple-500 mr-2 animate-pulse print:hidden"></span>
-            кандидат
+          <div className="mt-3 text-sm text-slate-500 flex items-center print:text-gray-600">
+            <Activity className="w-4 h-4 mr-2" />
+            Time-to-fill по воронке
           </div>
         </div>
 
+        {/* Карточка 3: Сквозная конверсия (Overall Conversion) */}
+        <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 backdrop-blur-sm transition-all hover:bg-slate-900 print:bg-gray-50 print:border-gray-200">
+          <div className="text-[11px] text-slate-400 uppercase tracking-widest mb-3 font-mono print:text-gray-500">СКВОЗНАЯ КОНВЕРСИЯ</div>
+          <div className="text-4xl font-semibold text-emerald-400 tracking-tight">
+            {loading ? <span className="opacity-50">...</span> : `${overallConversion}%`}
+          </div>
+          <div className="mt-3 text-sm text-slate-500 flex items-center print:text-gray-600">
+            <BarChart2 className="w-4 h-4 mr-2 text-emerald-400" />
+            абсолютная конверсия
+          </div>
+        </div>
+
+        {/* Карточка 4: База данных */}
         <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 backdrop-blur-sm transition-all hover:bg-slate-900 print:bg-gray-50 print:border-gray-200 flex flex-col justify-between">
           <div>
             <div className="text-[11px] text-slate-400 uppercase tracking-widest mb-3 font-mono print:text-gray-500">БАЗА ДАННЫХ XAMPP</div>
