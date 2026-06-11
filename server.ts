@@ -1,5 +1,7 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
+import { exec } from 'child_process';
 import { createServer as createViteServer } from 'vite';
 import mysql from 'mysql2/promise';
 import dotenv from 'dotenv';
@@ -1072,23 +1074,67 @@ CREATE INDEX idx_history_date ON Application_History(transition_date);
     }
   });
 
-  if (process.env.NODE_ENV !== "production") {
+  const distPath = path.join(process.cwd(), 'dist');
+  const hasBuild = fs.existsSync(path.join(distPath, 'index.html'));
+
+  if (process.env.NODE_ENV !== "production" || !hasBuild) {
+    if (!hasBuild && process.env.NODE_ENV === "production") {
+      console.log("⚠️ папка dist/index.html не найдена. Автоматический запуск в режиме динамической компиляции разработчика через Vite...");
+    }
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
+    console.log("📦 Сервер запущен в режиме дистрибутива. Раздача статики...");
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log("Сервер успешно запущен на порту " + PORT);
-  });
+  function openBrowser(url: string) {
+    // Не запускаем браузер в облачном контейнере (Cloud Run)
+    const isCloudRun = process.env.K_SERVICE || process.env.K_REVISION || process.env.K_CONFIGURATION;
+    if (isCloudRun) return;
+
+    const startCommand = process.platform === 'darwin' ? `open "${url}"` :
+                         process.platform === 'win32' ? `start "" "${url}"` :
+                         `xdg-open "${url}" 2>/dev/null || true`;
+
+    setTimeout(() => {
+      exec(startCommand, () => {});
+    }, 800); // Небольшая пауза для гарантии готовности express
+  }
+
+  function tryListen(port: number) {
+    const serverInstance = app.listen(port, "0.0.0.0", () => {
+      console.log(`\n=======================================================================`);
+      console.log(`🚀 АНАЛИЗАТОР ВОРОНКИ НАЙМА УСПЕШНО ЗАПУЩЕН!`);
+      console.log(`👉 Локальный адрес дашборда: http://localhost:${port}`);
+      console.log(`=======================================================================\n`);
+      
+      openBrowser(`http://localhost:${port}`);
+    });
+
+    serverInstance.on('error', (err: any) => {
+      if (err.code === 'EADDRINUSE') {
+        const isCloudEnv = process.env.PORT && (process.env.K_SERVICE || process.env.K_REVISION);
+        if (isCloudEnv) {
+          console.error(`❌ Ошибка: В контейнере порт ${port} уже занят! Выход.`);
+          process.exit(1);
+        }
+
+        console.log(`⚠️ Порт ${port} уже занят другим приложением. Пробую запустить на следующем порту ${port + 1}...`);
+        tryListen(port + 1);
+      } else {
+        console.error("❌ Фатальная ошибка запуска сервера:", err);
+      }
+    });
+  }
+
+  tryListen(PORT);
 }
 
 startServer();
