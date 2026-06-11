@@ -21,7 +21,7 @@ import {
   BarChart as RechartsBarChart, Bar as RechartsBar, XAxis, YAxis, Tooltip as RechartsTooltip, CartesianGrid, ResponsiveContainer,
   Funnel, FunnelChart, LabelList, Cell as RechartsCell, ReferenceLine as RechartsRefLine
 } from 'recharts';
-import { Database, Filter, Briefcase, Activity, Calendar, FileDown, Download, Users, Lock, LogOut, CheckCircle, BarChart2, Sparkles, FileText, AlertTriangle, Info, X, Check, Settings2, Code, Sun, Moon, Link, Cpu, Copy, RefreshCw, Search, ArrowUp, ArrowDown, ArrowUpDown, QrCode, Share2, Plus, Trash, Send, MessageCircle, Mail } from 'lucide-react';
+import { Database, Filter, Briefcase, Activity, Calendar, FileDown, Download, Users, Lock, LogOut, CheckCircle, BarChart2, Sparkles, FileText, AlertTriangle, Info, X, Check, Settings2, Code, Sun, Moon, Link, Cpu, Copy, RefreshCw, Search, ArrowUp, ArrowDown, ArrowUpDown, QrCode, Share2, Plus, Trash, Send, MessageCircle, Mail, History } from 'lucide-react';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend, annotationPlugin);
 
@@ -54,11 +54,67 @@ export default function App() {
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [integrationModalOpen, setIntegrationModalOpen] = useState(false);
   const [dbSettingsModalOpen, setDbSettingsModalOpen] = useState(false);
-  const [dbHost, setDbHost] = useState('localhost');
-  const [dbPort, setDbPort] = useState('3306');
-  const [dbUser, setDbUser] = useState('root');
+  
+  // Connection Profiles system
+  interface DbProfile {
+    id: string;
+    host: string;
+    port: string;
+    user: string;
+    database: string;
+    timestamp: number;
+    name?: string;
+  }
+
+  const [dbProfiles, setDbProfiles] = useState<DbProfile[]>(() => {
+    try {
+      const saved = localStorage.getItem('vkr_db_profiles');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const saveSuccessfulProfile = (host: string, port: string, user: string, database: string) => {
+    const newProfile: DbProfile = {
+      id: `${host}_${database}_${Date.now()}`,
+      host,
+      port,
+      user,
+      database,
+      timestamp: Date.now()
+    };
+    
+    setDbProfiles(prev => {
+      const filtered = prev.filter(p => !(p.host.toLowerCase() === host.toLowerCase() && p.database.toLowerCase() === database.toLowerCase()));
+      const updated = [newProfile, ...filtered].slice(0, 3);
+      localStorage.setItem('vkr_db_profiles', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const deleteProfile = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    setDbProfiles(prev => {
+      const updated = prev.filter(p => p.id !== id);
+      localStorage.setItem('vkr_db_profiles', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const [dbHost, setDbHost] = useState(() => localStorage.getItem('vkr_db_draft_host') || 'localhost');
+  const [dbPort, setDbPort] = useState(() => localStorage.getItem('vkr_db_draft_port') || '3306');
+  const [dbUser, setDbUser] = useState(() => localStorage.getItem('vkr_db_draft_user') || 'root');
   const [dbPassword, setDbPassword] = useState('');
-  const [dbNameInput, setDbNameInput] = useState('hr_funnel_db');
+  const [dbNameInput, setDbNameInput] = useState(() => localStorage.getItem('vkr_db_draft_name') || 'hr_funnel_db');
+
+  useEffect(() => {
+    localStorage.setItem('vkr_db_draft_host', dbHost);
+    localStorage.setItem('vkr_db_draft_port', dbPort);
+    localStorage.setItem('vkr_db_draft_user', dbUser);
+    localStorage.setItem('vkr_db_draft_name', dbNameInput);
+  }, [dbHost, dbPort, dbUser, dbNameInput]);
+
   const [dbConfigError, setDbConfigError] = useState<string | null>(null);
   const [dbConfigSuccess, setDbConfigSuccess] = useState<string | null>(null);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
@@ -95,6 +151,20 @@ export default function App() {
     .then(dataUrl => setQrCodeDataUrl(dataUrl))
     .catch(err => console.error('Error rendering QR:', err));
   }, [shareTab]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setDbSettingsModalOpen(false);
+        setIntegrationModalOpen(false);
+        setShareModalOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
 
   const handleCopyLink = (url: string, type: 'current' | 'preview' | 'dev') => {
     navigator.clipboard.writeText(url);
@@ -527,6 +597,79 @@ export default function App() {
     setDbHost(val);
   };
 
+  const handleApplyProfile = async (profile: DbProfile) => {
+    setDbHost(profile.host);
+    setDbPort(profile.port);
+    setDbUser(profile.user);
+    setDbNameInput(profile.database);
+    setIsTestingConnection(true);
+    setDbConfigError(null);
+    setDbConfigSuccess(null);
+    try {
+      const res = await fetch('/api/analytics/config-db', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          host: profile.host,
+          port: Number(profile.port),
+          user: profile.user,
+          password: '', // по умолчанию без пароля для локальных/тестовых баз
+          database: profile.database
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setDbConfigSuccess(`Подключено к ${profile.database} на ${profile.host}!`);
+        saveSuccessfulProfile(profile.host, profile.port, profile.user, profile.database);
+        await fetchDbStatus();
+        await fetchVacancies();
+        await fetchAnalytics();
+        await fetchCandidatesList();
+        setTimeout(() => {
+          setDbSettingsModalOpen(false);
+          setDbConfigSuccess(null);
+        }, 1200);
+      } else {
+        setDbConfigError(`Профиль загружен. Введите пароль подключения вручную: ${data.error}`);
+      }
+    } catch (err: any) {
+      setDbConfigError(`Профиль загружен. Ошибка автоподключений: ${err.message}`);
+    } finally {
+      setIsTestingConnection(false);
+    }
+  };
+
+  const handleResetToOffline = async () => {
+    setIsTestingConnection(true);
+    setDbConfigError(null);
+    setDbConfigSuccess(null);
+    try {
+      const res = await fetch('/api/analytics/config-db', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ host: 'offline' })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setDbConfigSuccess('Встроенная имитация успешно активирована!');
+        await fetchDbStatus();
+        await fetchVacancies();
+        await fetchAnalytics();
+        await fetchCandidatesList();
+        setTimeout(() => {
+          setDbSettingsModalOpen(false);
+          setDbConfigSuccess(null);
+        }, 1200);
+      } else {
+        setDbConfigError(data.error || 'Не удалось переключить режим на оффлайн.');
+      }
+    } catch (err: any) {
+      setDbConfigError(`Ошибка связи при переключении: ${err.message}`);
+    } finally {
+      setIsTestingConnection(false);
+    }
+  };
+
   const handleSaveDbSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsTestingConnection(true);
@@ -556,6 +699,7 @@ export default function App() {
       const data = await res.json();
       if (res.ok && data.success) {
         setDbConfigSuccess(data.message || 'Подключение успешно установлено!');
+        saveSuccessfulProfile(dbHost, dbPort, dbUser, dbNameInput);
         await fetchDbStatus();
         await fetchVacancies();
         await fetchAnalytics();
@@ -1365,19 +1509,31 @@ export default function App() {
       )}
 
       {integrationModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl">
-            <div className="px-6 py-4 border-b border-slate-800 flex justify-between items-center">
+        <div 
+          className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 select-none"
+          onClick={() => setIntegrationModalOpen(false)}
+        >
+          <div 
+            className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl transition-all duration-300 flex flex-col max-h-[90vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-6 py-4 border-b border-slate-800 flex justify-between items-center bg-slate-950/40 flex-shrink-0 select-text">
               <h3 className="text-lg font-semibold text-white flex items-center">
                 <Code className="w-5 h-5 text-blue-400 mr-2" />
                 Интеграция модуля
               </h3>
-              <button onClick={() => setIntegrationModalOpen(false)} className="text-slate-400 hover:text-white transition-colors">
+              <button 
+                type="button" 
+                onClick={() => setIntegrationModalOpen(false)} 
+                className="text-slate-400 hover:text-white transition-colors cursor-pointer p-1 rounded-lg hover:bg-slate-800/85"
+                title="Закрыть (Esc)"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="p-0">
-                <div className="flex border-b border-slate-800">
+            
+            <div className="flex-shrink-0 select-text">
+              <div className="flex border-b border-slate-800">
                   <div 
                     onClick={() => setIntegrationTab('iframe')}
                     className={`flex-1 py-3 px-4 flex items-center justify-center text-sm font-medium cursor-pointer transition-colors ${integrationTab === 'iframe' ? 'text-blue-400 border-b-2 border-blue-500 bg-blue-500/10' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'}`}
@@ -1399,9 +1555,10 @@ export default function App() {
                      <Database className="w-4 h-4 mr-2" />
                      Webhooks
                   </div>
-               </div>
+              </div>
+            </div>
                
-               <div className="p-6">
+            <div className="p-6 overflow-y-auto max-h-[calc(90vh-140px)] select-text scrollbar-thin scrollbar-thumb-slate-800">
                  {integrationTab === 'iframe' && (
                    <div className="animate-in fade-in zoom-in-95 duration-200">
                      <h4 className="text-slate-200 font-medium mb-2 text-sm">HTML-код для встраивания</h4>
@@ -1639,12 +1796,12 @@ Allow from env=valid_token
                       </div>
                     </div>
                   )}
-               </div>
             </div>
-            <div className="px-6 py-4 border-t border-slate-800 bg-slate-900/50 text-right">
+            <div className="px-6 py-4 border-t border-slate-800 bg-slate-900/50 text-right flex-shrink-0 select-text">
               <button 
+                type="button"
                 onClick={() => setIntegrationModalOpen(false)}
-                className="px-5 py-2 text-sm font-medium text-white bg-slate-700 rounded-lg hover:bg-slate-600 transition-colors"
+                className="px-5 py-2 text-sm font-medium text-white bg-slate-705 border border-slate-700 rounded-lg hover:bg-slate-700 transition-colors cursor-pointer"
               >
                 Закрыть
               </button>
@@ -1654,8 +1811,14 @@ Allow from env=valid_token
       )}
 
       {shareModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className={`${theme === 'dark' ? 'bg-[#111827] border-slate-800' : 'bg-white border-slate-200'} border rounded-2xl w-full max-w-md overflow-hidden shadow-2xl transition-all`}>
+        <div 
+          className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 select-none"
+          onClick={() => setShareModalOpen(false)}
+        >
+          <div 
+            className={`${theme === 'dark' ? 'bg-[#111827] border-slate-[#111827]' : 'bg-white border-slate-200'} border rounded-2xl w-full max-w-md overflow-hidden shadow-2xl transition-all flex flex-col max-h-[90vh]`}
+            onClick={(e) => e.stopPropagation()}
+          >
             {/* Header */}
             <div className={`px-6 py-4 border-b ${theme === 'dark' ? 'border-slate-800' : 'border-slate-200'} flex justify-between items-center`}>
               <h3 className={`text-lg font-semibold ${theme === 'dark' ? 'text-white' : 'text-slate-900'} flex items-center`}>
@@ -1668,7 +1831,7 @@ Allow from env=valid_token
             </div>
             
             {/* Content */}
-            <div className="p-6">
+            <div className="p-6 overflow-y-auto max-h-[calc(90vh-140px)] select-text">
               {/* Tabs */}
               <div className={`flex rounded-lg p-1 mb-5 ${theme === 'dark' ? 'bg-slate-950/60' : 'bg-slate-100'}`}>
                 <button
@@ -1833,27 +1996,110 @@ Allow from env=valid_token
       )}
 
       {dbSettingsModalOpen && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl transition-all duration-300">
+        <div 
+          className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4 select-none"
+          onClick={() => setDbSettingsModalOpen(false)}
+        >
+          <div 
+            className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl transition-all duration-300 flex flex-col max-h-[90vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
             {/* Header */}
-            <div className="px-6 py-4 border-b border-slate-800 flex justify-between items-center bg-slate-950/40">
+            <div className="px-6 py-4 border-b border-slate-800 flex justify-between items-center bg-slate-950/40 flex-shrink-0 select-text">
               <h3 className="text-lg font-semibold text-white flex items-center">
                 <Database className="w-5 h-5 text-blue-400 mr-2" />
                 Настройки подключения СУБД
               </h3>
-              <button onClick={() => setDbSettingsModalOpen(false)} className="text-slate-400 hover:text-white transition-colors cursor-pointer">
+              <button 
+                type="button"
+                onClick={() => setDbSettingsModalOpen(false)} 
+                className="text-slate-400 hover:text-white transition-colors cursor-pointer p-1 rounded-lg hover:bg-slate-800/80"
+                title="Закрыть (Esc)"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             {/* Form */}
-            <form onSubmit={handleSaveDbSettings}>
-              <div className="p-6 space-y-4">
+            <form onSubmit={handleSaveDbSettings} className="flex flex-col overflow-hidden select-text">
+              <div className="p-6 space-y-4 overflow-y-auto max-h-[calc(90vh-140px)] scrollbar-thin scrollbar-thumb-slate-800">
                 <div className="text-xs text-slate-400 leading-relaxed bg-blue-950/30 border border-blue-500/20 p-3 rounded-lg flex gap-2">
                   <Info className="w-4 h-4 text-blue-400 flex-shrink-0 mt-0.5" />
                   <span>
                     Настройка параметров подключения к СУБД проекта (MySQL). По умолчанию используется встроенная имитация базы данных.
                   </span>
+                </div>
+
+                {/* Скачивание SQL-дампа структуры */}
+                <div className="flex items-center justify-between p-3 bg-slate-950/60 border border-slate-800 rounded-xl gap-2">
+                  <div className="space-y-0.5">
+                    <div className="text-xs font-semibold text-white flex items-center gap-1.5">
+                      <FileDown className="w-4 h-4 text-purple-400" />
+                      Инициализация БД (SQL)
+                    </div>
+                    <p className="text-[10px] text-slate-400">Скачайте готовую структуру таблиц и этапов для импорта в ваш XAMPP.</p>
+                  </div>
+                  <a
+                    href="/api/analytics/export-sql"
+                    download="hr_funnel_schema.sql"
+                    className="text-[11px] px-3 py-1.5 rounded-lg border border-purple-500/30 bg-purple-600/10 hover:bg-purple-600/20 text-purple-300 font-medium flex items-center gap-1 transition-all cursor-pointer flex-shrink-0"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    SQL-структура
+                  </a>
+                </div>
+
+                {/* Профили подключения */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
+                      <History className="w-3 h-3 text-blue-400" />
+                      Профили-закладки
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleResetToOffline}
+                      className="text-[10px] text-blue-400 hover:text-blue-300 font-medium transition-colors cursor-pointer"
+                    >
+                      Режим имитации (Offline)
+                    </button>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 gap-1.5">
+                    {dbProfiles.length === 0 ? (
+                      <div className="text-[10px] text-slate-500 italic p-2 bg-slate-950/20 border border-dashed border-slate-800 rounded-lg text-center">
+                        Здесь появятся ваши успешные подключения для быстрого переключения в 1 клик.
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 gap-1.5">
+                        {dbProfiles.map((p) => (
+                          <div
+                            key={p.id}
+                            onClick={() => handleApplyProfile(p)}
+                            className="group flex items-center justify-between p-2 rounded-lg bg-slate-950 hover:bg-slate-850 border border-slate-850 hover:border-blue-500/50 cursor-pointer transition-all"
+                            title="Нажмите для автоматического подключения"
+                          >
+                            <div className="flex items-center gap-2 overflow-hidden">
+                              <Database className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
+                              <div className="text-left overflow-hidden">
+                                <div className="text-[11px] font-medium text-slate-200 truncate">
+                                  {p.database} <span className="text-slate-400 text-[10px]">({p.user}@{p.host}:{p.port})</span>
+                                </div>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={(e) => deleteProfile(e, p.id)}
+                              className="p-1 rounded hover:bg-red-950/40 text-slate-500 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
+                              title="Исключить профиль"
+                            >
+                              <Trash className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {dbConfigError && (
@@ -1872,7 +2118,20 @@ Allow from env=valid_token
 
                 <div className="grid grid-cols-3 gap-3">
                   <div className="col-span-2 space-y-1.5">
-                    <label className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Хост (IP / Домен)</label>
+                    <div className="flex justify-between items-center">
+                      <label className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Хост (IP / Домен)</label>
+                      {(() => {
+                        const h = dbHost.trim().toLowerCase();
+                        if (!h) return null;
+                        if (['localhost', '127.0.0.1', '::1', '0.0.0.0'].includes(h) || h.endsWith('.local')) {
+                          return <span className="text-[9px] font-medium text-amber-400 flex items-center gap-0.5 bg-amber-500/10 px-1 py-0.5 rounded border border-amber-500/20 leading-none">Нужен туннель</span>;
+                        }
+                        if (h.includes('ngrok') || h.includes('localtunnel') || h.includes('tunnel') || h.includes('lvh.me')) {
+                          return <span className="text-[9px] font-medium text-emerald-400 flex items-center gap-0.5 bg-emerald-500/10 px-1 py-0.5 rounded border border-emerald-500/20 leading-none">Туннель активен</span>;
+                        }
+                        return <span className="text-[9px] font-medium text-blue-400 flex items-center gap-0.5 bg-blue-500/10 px-1 py-0.5 rounded border border-blue-500/20 leading-none">Внешний DNS</span>;
+                      })()}
+                    </div>
                     <input 
                       type="text" 
                       required
@@ -2004,8 +2263,8 @@ Allow from env=valid_token
                 })()}
               </div>
 
-              {/* Footer */}
-              <div className="px-6 py-4 border-t border-slate-800 bg-slate-950/30 flex justify-end gap-2.5">
+              {/* Footer (Sticky) */}
+              <div className="px-6 py-4 border-t border-slate-800 bg-slate-950/40 flex justify-end gap-2.5 flex-shrink-0 select-text">
                 <button 
                   type="button"
                   onClick={() => setDbSettingsModalOpen(false)}

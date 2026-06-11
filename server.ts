@@ -761,10 +761,128 @@ async function startServer() {
     });
   });
 
+  // API экспорта SQL-дампа структуры
+  app.get('/api/analytics/export-sql', (req, res) => {
+    const sqlDump = `-- =====================================================================
+-- Скрипт инициализации структуры БД Воронки найма (HR Funnel)
+-- Сгенерировано системой автодиагностики VKR-DB-GATEWAY
+-- =====================================================================
+
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- Сброс таблиц, если они существуют
+DROP TABLE IF EXISTS Application_History;
+DROP TABLE IF EXISTS Candidates;
+DROP TABLE IF EXISTS Vacancies;
+DROP TABLE IF EXISTS Recruiters;
+DROP TABLE IF EXISTS Stages;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- 1. Таблица Этапов
+CREATE TABLE Stages (
+  id_stage INT PRIMARY KEY,
+  stage_name VARCHAR(100) NOT NULL,
+  sort_order INT NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Заполнение этапов воронки
+INSERT INTO Stages (id_stage, stage_name, sort_order) VALUES
+(1, 'Новый кандидат', 1),
+(2, 'Скрининг/Чат-бот', 2),
+(3, 'Интервью с рекрутером', 3),
+(4, 'Техническое интервью', 4),
+(5, 'Финальное интервью', 5),
+(6, 'Выставлен оффер', 6),
+(7, 'Оффер принят / Оформлен', 7);
+
+-- 2. Таблица Рекрутеров
+CREATE TABLE Recruiters (
+  id_recruiter INT AUTO_INCREMENT PRIMARY KEY,
+  full_name VARCHAR(255) NOT NULL,
+  email VARCHAR(100) UNIQUE NOT NULL,
+  is_active TINYINT DEFAULT 1
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Создание дефолтного HR-менеджера
+INSERT INTO Recruiters (id_recruiter, full_name, email, is_active) VALUES
+(1, 'Герасимов В.В.', 'gerasimov@pvguti.ru', 1);
+
+-- 3. Таблица Вакансий
+CREATE TABLE Vacancies (
+  id_vacancy INT AUTO_INCREMENT PRIMARY KEY,
+  id_recruiter INT NOT NULL,
+  job_title VARCHAR(255) NOT NULL,
+  open_date DATETIME NOT NULL,
+  close_date DATETIME NULL,
+  status VARCHAR(50) DEFAULT 'В работе',
+  FOREIGN KEY (id_recruiter) REFERENCES Recruiters(id_recruiter) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Начальные вакансии
+INSERT INTO Vacancies (id_vacancy, id_recruiter, job_title, open_date, status) VALUES
+(1, 1, 'Senior React Developer', NOW(), 'В работе'),
+(2, 1, 'Java Backend Developer', NOW(), 'В работе'),
+(3, 1, 'UI/UX Designer', NOW(), 'В работе'),
+(4, 1, 'Data Scientist', NOW(), 'В работе'),
+(5, 1, 'Product Manager', NOW(), 'В работе'),
+(6, 1, 'DevOps Engineer', NOW(), 'В работе'),
+(7, 1, 'QA Automation Engineer', NOW(), 'В работе'),
+(8, 1, 'HR Manager', NOW(), 'В работе');
+
+-- 4. Таблица Кандидатов
+CREATE TABLE Candidates (
+  id_candidate INT AUTO_INCREMENT PRIMARY KEY,
+  full_name VARCHAR(255) NOT NULL,
+  phone_number VARCHAR(50) NOT NULL,
+  source VARCHAR(100) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 5. Таблица Истории переходов (Логи жизненного цикла кандидата)
+CREATE TABLE Application_History (
+  id_history INT AUTO_INCREMENT PRIMARY KEY,
+  id_candidate INT NOT NULL,
+  id_vacancy INT NOT NULL,
+  id_stage INT NOT NULL,
+  transition_date DATETIME NOT NULL,
+  status VARCHAR(50) DEFAULT 'В процессе',
+  FOREIGN KEY (id_stage) REFERENCES Stages(id_stage) ON DELETE CASCADE,
+  FOREIGN KEY (id_vacancy) REFERENCES Vacancies(id_vacancy) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Индексы для оптимизации сложных запросов (аналитика SLA, воронка и задержки)
+CREATE INDEX idx_history_stage ON Application_History(id_stage);
+CREATE INDEX idx_history_vacancy ON Application_History(id_vacancy);
+CREATE INDEX idx_history_candidate ON Application_History(id_candidate);
+CREATE INDEX idx_history_date ON Application_History(transition_date);
+
+-- =====================================================================
+-- Конец скрипта. Схема готова к импорту.
+-- =====================================================================
+`;
+
+    res.setHeader('Content-Type', 'application/sql');
+    res.setHeader('Content-Disposition', 'attachment; filename="hr_funnel_schema.sql"');
+    res.send(sqlDump);
+  });
+
   // API Настройки подключения к БД
   app.post('/api/analytics/config-db', async (req, res) => {
     const { host, port, user, password, database } = req.body;
     try {
+      if (host === 'offline') {
+        try {
+          await pool.end();
+        } catch (e) {
+          console.log("Error closing pool on default reset:", e);
+        }
+        useRealMySQL = false;
+        return res.json({
+          success: true,
+          message: 'Успешно переключено на встроенную имитацию базы данных!'
+        });
+      }
+
       if (!host || !user || !database) {
         return res.status(400).json({ success: false, error: 'Хост, пользователь и имя базы данных обязательны.' });
       }

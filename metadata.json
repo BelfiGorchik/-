@@ -1,6 +1,6 @@
 {
-  "name": "",
-  "description": "",
+  "name": "Анализатор воронки найма",
+  "description": "Автоматизация сбора, обработки и визуализации ключевых метрик подбора персонала для ВКР",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
