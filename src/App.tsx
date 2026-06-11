@@ -45,6 +45,25 @@ export default function App() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
+  
+  const [loginQrDataUrl, setLoginQrDataUrl] = useState<string>('');
+  const [loginCopied, setLoginCopied] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const currentUrl = window.location.href;
+      QRCode.toDataURL(currentUrl, {
+        width: 300,
+        margin: 2,
+        color: {
+          dark: '#0f172a',
+          light: '#ffffff'
+        }
+      })
+      .then(dataUrl => setLoginQrDataUrl(dataUrl))
+      .catch(err => console.error('Error generating login QR:', err));
+    }
+  }, []);
 
   const [dateRange, setDateRange] = useState('all');
   const [customStart, setCustomStart] = useState('');
@@ -1277,48 +1296,58 @@ export default function App() {
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-[#0b0f19] flex items-center justify-center p-4">
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 w-full max-w-md shadow-2xl relative overflow-hidden">
-           {/* Decorative elements */}
-           <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-purple-500 to-blue-500"></div>
-           
-           <h2 className="text-2xl text-white mt-2 mb-6 flex items-center justify-center font-medium">
-              <div className="bg-purple-600 rounded-lg w-10 h-10 flex items-center justify-center mr-3 font-bold text-white shadow-lg shadow-purple-900/50">HR</div>
-              Анализатор воронки
-           </h2>
-           <p className="text-slate-400 mb-8 text-center text-sm">Авторизация для доступа к аналитике</p>
-           
-           <form onSubmit={handleLogin} className="space-y-5">
-             <div>
-               <label className="block text-xs uppercase tracking-wider text-slate-500 mb-1.5 font-medium">Email (рабочий)</label>
-               <input 
-                  type="email" 
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="hr@company.com" 
-                  className="w-full bg-slate-950/50 border border-slate-700 rounded-lg px-4 py-2.5 text-white text-sm focus:outline-none focus:ring-1 focus:ring-purple-500 focus:border-purple-500 transition-shadow" 
-                  required 
-               />
-             </div>
-             <div>
-               <label className="block text-xs uppercase tracking-wider text-slate-500 mb-1.5 font-medium">Пароль</label>
-               <input 
-                  type="password" 
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••" 
-                  className="w-full bg-slate-950/50 border border-slate-700 rounded-lg px-4 py-2.5 text-white text-sm focus:outline-none focus:ring-1 focus:ring-purple-500 focus:border-purple-500 transition-shadow" 
-                  required 
-               />
-             </div>
-             {loginError && <p className="text-red-400 text-sm text-center">{loginError}</p>}
-             <button type="submit" className="w-full bg-purple-600 hover:bg-purple-500 text-white font-medium py-2.5 rounded-lg transition-colors mt-8 shadow-lg shadow-purple-900/20 flex items-center justify-center">
-               <Lock className="w-4 h-4 mr-2 opacity-70"/>
-               Войти в систему
-             </button>
-           </form>
-           <div className="mt-6 text-center">
-              <span className="text-[10px] uppercase font-mono tracking-wider text-slate-500 bg-slate-800/50 px-2 py-1 rounded">Режим прототипа: введите любые данные</span>
-           </div>
+        <div className="w-full max-w-[420px] flex flex-col gap-6">
+          
+          {/* Карточка входа */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl relative overflow-hidden flex flex-col justify-between">
+            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-purple-500 to-blue-500"></div>
+            <div>
+              <h2 className="text-xl text-white mt-2 mb-2 flex items-center font-medium">
+                <div className="bg-purple-600 rounded-lg w-8 h-8 flex items-center justify-center mr-2.5 font-bold text-white text-sm shadow-md shadow-purple-900/30">HR</div>
+                Анализатор воронки
+              </h2>
+              <p className="text-slate-400 mb-6 text-xs">Авторизация для доступа к дашборду</p>
+              
+              <form onSubmit={handleLogin} className="space-y-4">
+                <div>
+                  <label className="block text-[10px] uppercase font-semibold tracking-wider text-slate-500 mb-1 font-medium">Email (рабочий)</label>
+                  <input 
+                    type="email" 
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="hr@company.com" 
+                    className="w-full bg-slate-950/50 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-1 focus:ring-purple-500 focus:border-purple-500 transition-shadow" 
+                    required 
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] uppercase font-semibold tracking-wider text-slate-500 mb-1 font-medium">Пароль</label>
+                  <input 
+                    type="password" 
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••" 
+                    className="w-full bg-slate-950/50 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-1 focus:ring-purple-500 focus:border-purple-500 transition-shadow" 
+                    required 
+                  />
+                </div>
+                {loginError && <p className="text-red-400 text-xs text-center">{loginError}</p>}
+                <button type="submit" className="w-full bg-purple-600 hover:bg-purple-500 text-white font-medium py-2 rounded-lg transition-colors mt-6 shadow-lg shadow-purple-900/20 flex items-center justify-center text-sm cursor-pointer">
+                  <Lock className="w-3.5 h-3.5 mr-2 opacity-70"/>
+                  Войти в систему
+                </button>
+              </form>
+            </div>
+            
+            <div className="mt-5 text-center border-t border-slate-800/80 pt-4">
+              <span className="text-[10px] uppercase font-mono tracking-wider text-slate-400 bg-purple-950/20 px-2 py-1 rounded inline-block border border-purple-900/30">
+                ⚡ Режим симуляции: введите любые данные
+              </span>
+            </div>
+          </div>
+
+
+
         </div>
       </div>
     );
